@@ -228,7 +228,7 @@ L'adaptateur pourra alors deduire automatiquement le client `eform` et le store 
 Test de recuperation des verbes :
 
 ```bash
-curl -i -u eform:aaaaaaaa \
+curl -i -u <nom client>:<secret> \
   "http://192.168.56.11/trax/api/gateway/clients/eform/stores/api/statements/aggregate?pipeline=%5B%7B%22%24group%22%3A%7B%22_id%22%3A%22%24statement.verb.id%22%7D%7D%5D"
 ```
 
@@ -291,7 +291,7 @@ Verifier que l'en-tete Basic Auth est bien transmis par Apache a PHP.
 Tester :
 
 ```bash
-curl -i -u eform:aaaaaaaa "URL_AGGREGATE"
+curl -i -u <nom client>:<secret> "URL_AGGREGATE"
 ```
 
 ### Aucun statement affiche
@@ -299,7 +299,7 @@ curl -i -u eform:aaaaaaaa "URL_AGGREGATE"
 Verifier que les statements Trax utilisent le meme `object.id` que l'Activity-ID de l'objet ILIAS.
 
 ```bash
-curl -s -u eform:aaaaaaaa \
+curl -s -u <nom client>:<secret> \
   -H "X-Experience-API-Version: 1.0.3" \
   "http://192.168.56.11/trax/api/gateway/clients/eform/stores/default/xapi/statements?limit=20" \
   | jq -r '.statements[] | [.stored, .verb.id, .object.id, (.context.registration // "-")] | @tsv'
@@ -319,6 +319,3 @@ curl -s -u eform:aaaaaaaa \
 - Limiter l'acces Apache a l'adaptateur si necessaire.
 - Laisser `debug` a `false` en production.
 
-## 15. Licence
-
-A definir selon le depot GitHub. Une licence MIT est recommandee si tu souhaites publier librement l'adaptateur.
