@@ -8,7 +8,8 @@ Adaptateur Trax LRS 3 pour ILIAS 10 permettant :
 L’adaptateur sert à faire le lien entre ILIAS et Trax3 pour que les activités cmi5 fonctionnent correctement.
 - Il intercepte uniquement certains appels spécifiques d’ILIAS, notamment ceux liés au lancement cmi5 et à l’affichage des résultats comme Learning Experience et Ranking.
 - Il transforme ou complète ces appels pour que Trax3 puisse répondre dans un format compréhensible par ILIAS.
-- Il ne remplace pas Trax3 et ne modifie pas les traces enregistrées. Les traces xAPI classiques non-cmi5 continuent d’être écrites et lues directement dans Trax3 sans passer par l’adaptateur.
+- Il ne remplace pas Trax3 et ne modifie pas les traces enregistrées.
+- Les traces xAPI classiques non-cmi5 continuent d’être écrites et lues directement dans Trax3 sans passer par l’adaptateur.
 
 En résumé : l’adaptateur corrige la compatibilité entre ILIAS et Trax3 pour le cmi5, tout en laissant le xAPI standard fonctionner normalement.
 
