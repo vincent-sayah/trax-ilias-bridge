@@ -1,55 +1,100 @@
 # trax-ilias-bridge
-Adaptateur Trax LRS 3 pour ILIAS 10 permettant l’affichage des Learning Experiences xAPI/cmi5.
 
-## 1. Problematique
+Adaptateur Trax LRS 3 pour ILIAS 10 permettant :
 
-Dans une integration ILIAS 10 + Trax LRS 3, le lancement cmi5 peut fonctionner correctement :
+- le pré-lancement cmi5 sans modifier le cœur ILIAS ;
+- l'affichage des onglets **Learning Experiences** et **Ranking** des objets xAPI/cmi5 ILIAS.
 
-- ILIAS lance le module cmi5.
-- Le module envoie ses statements xAPI vers Trax.
-- Trax affiche bien les statements `initialized`, `progressed`, `completed`, `satisfied`, `terminated`, etc.
+noms de fichiers de la première version du dépôt :
 
-Cependant, les onglets ILIAS **Learning Experiences** et **Ranking** peuvent rester vides. Le symptome typique dans les logs ILIAS est :
+```text
+aggregate.php
+config.sample.php
+apache-trax-ilias-adapter.conf
+README.md
+```
+
+Le fichier `aggregate.php` n'est plus seulement un endpoint d'agrégation : c'est maintenant le contrôleur unique de l'adaptateur.
+
+---
+
+## 1. Problématique
+
+Dans une intégration **ILIAS 10 + Trax LRS 3**, deux incompatibilités peuvent apparaître.
+
+### 1.1 Pré-lancement cmi5
+
+ILIAS 10 peut envoyer deux paramètres d'activité lors du pré-lancement cmi5 :
+
+```text
+activityId
+activity_id
+```
+
+Trax LRS 3 accepte `activityId`, mais refuse `activity_id` avec une erreur du type :
+
+```text
+A request input is not allowed: [activity_id]
+```
+
+Conséquence : le pré-lancement cmi5 échoue, le token du proxy xAPI peut être nul, et seuls les statements initiaux comme `launched` apparaissent dans Trax.
+
+L'adaptateur intercepte les appels vers :
+
+```text
+/trax/api/gateway/clients/{client}/stores/{store}/cmi5/tokens
+```
+
+Il supprime automatiquement `activity_id`, conserve `activityId`, puis transmet la requête à Trax.
+
+### 1.2 Learning Experiences / Ranking
+
+Les statements xAPI sont bien enregistrés dans Trax, mais les onglets ILIAS **Learning Experiences** et **Ranking** peuvent rester vides.
+
+Symptômes typiques dans les logs ILIAS :
 
 ```text
 ilCmiXapiStatementsGUI::getVerbs: LRS error: <!DOCTYPE html>
 ilCmiXapiAbstractRequest::sendRequest: LRS error: <!DOCTYPE html>
 ```
 
-La cause est l'endpoint de reporting utilise par ILIAS. ILIAS appelle un endpoint d'agregation de type :
+La cause est que ILIAS appelle un endpoint d'agrégation de type :
 
 ```text
 /trax/api/gateway/clients/{client}/stores/api/statements/aggregate?pipeline=...
 ```
 
-ou, avec un correctif optionnel ILIAS :
+ou, selon le contexte :
 
 ```text
 /trax/api/gateway/clients/{client}/stores/{store}/api/statements/aggregate?pipeline=...
 ```
 
-Trax LRS expose les statements via l'endpoint xAPI standard du store :
+Trax expose les statements via l'endpoint xAPI standard :
 
 ```text
 /trax/api/gateway/clients/{client}/stores/{store}/xapi/statements
 ```
 
-Trax ne fournit pas nativement l'endpoint Mongo-style `statements/aggregate?pipeline=...` attendu par ILIAS. L'adaptateur comble cet ecart.
+L'adaptateur traduit donc les requêtes d'agrégation ILIAS vers des lectures xAPI Trax, puis retourne une réponse JSON compatible ILIAS.
 
-## 2. Principe de l'adaptateur
+---
 
-L'adaptateur est installe sur le serveur Trax. Apache redirige les appels ILIAS vers un script PHP `aggregate.php`.
+## 2. Principe de fonctionnement
 
-Le script :
+L'adaptateur est installé sur le serveur Trax. Apache redirige certaines URL Trax vers `aggregate.php` avant qu'elles n'atteignent l'application Trax.
 
-1. recoit l'appel ILIAS `statements/aggregate?pipeline=...` ;
-2. deduit le client Trax depuis l'URL ;
-3. deduit le store depuis l'URL ou depuis `config.php` ;
-4. appelle l'endpoint Trax xAPI `/xapi/statements` ;
-5. applique localement une partie des pipelines ILIAS ;
-6. retourne un JSON au format attendu par ILIAS.
+L'adaptateur gère trois routes :
 
-Les identifiants Basic Auth envoyes par ILIAS sont transmis a Trax. Il est donc possible d'utiliser plusieurs clients Trax avec des identifiants differents.
+```text
+/trax/api/gateway/clients/{client}/stores/{store}/cmi5/tokens
+/trax/api/gateway/clients/{client}/stores/{store}/api/statements/aggregate
+/trax/api/gateway/clients/{client}/stores/api/statements/aggregate
+```
+
+Il transmet ensuite les requêtes corrigées à Trax en conservant les identifiants Basic Auth envoyés par ILIAS.
+
+---
 
 ## 3. Fichiers fournis
 
@@ -60,203 +105,243 @@ apache-trax-ilias-adapter.conf
 README.md
 ```
 
-## 4. Prerequis
+---
 
-- Serveur Trax LRS 3 accessible en HTTP ou HTTPS.
+## 4. Prérequis
+
+- Trax LRS 3 accessible en HTTP ou HTTPS.
 - Apache sur le serveur Trax.
 - PHP avec l'extension cURL active.
-- Un client Trax configure avec les droits necessaires pour lire les statements via l'API xAPI.
-- ILIAS 10 configure avec un type LRS pointant vers l'endpoint xAPI Trax :
+- `mod_rewrite` activé dans Apache.
+- Un ou plusieurs clients Trax avec accès Basic HTTP.
+- ILIAS 10 configuré avec un endpoint xAPI Trax, par exemple :
 
 ```text
-http://SERVEUR_TRAX/trax/api/gateway/clients/{client}/stores/{store}/xapi
+http://SERVEUR_TRAX/trax/api/gateway/clients/ppm/stores/ppm/xapi
 ```
+
+Ne pas configurer l'endpoint ILIAS sur `/cmi5/tokens`.
+
+---
 
 ## 5. Installation sur le serveur Trax
 
-Copier les fichiers de l'adaptateur :
+Copier les fichiers :
 
 ```bash
 mkdir -p /var/www/trax-ilias-aggregate-adapter
+
 cp aggregate.php /var/www/trax-ilias-aggregate-adapter/aggregate.php
 cp config.sample.php /var/www/trax-ilias-aggregate-adapter/config.php
+
 chown -R apache:apache /var/www/trax-ilias-aggregate-adapter
 chmod 0644 /var/www/trax-ilias-aggregate-adapter/aggregate.php
 chmod 0640 /var/www/trax-ilias-aggregate-adapter/config.php
 ```
 
-Copier la configuration Apache :
+Installer la configuration Apache :
 
 ```bash
 cp apache-trax-ilias-adapter.conf /etc/httpd/conf.d/trax-ilias-aggregate-adapter.conf
+
 apachectl configtest
 systemctl restart httpd
 ```
 
-## 6. Configuration Apache
+Important : la configuration de l'adaptateur doit être chargée avant les règles générales de Trax/Laravel.
 
-Le fichier `apache-trax-ilias-adapter.conf` contient deux routes :
+---
 
-```apache
-AliasMatch "^/trax/api/gateway/clients/([^/]+)/stores/([^/]+)/api/statements/aggregate$" "/var/www/trax-ilias-aggregate-adapter/aggregate.php"
-AliasMatch "^/trax/api/gateway/clients/([^/]+)/stores/api/statements/aggregate$" "/var/www/trax-ilias-aggregate-adapter/aggregate.php"
+## 6. Configuration
 
-<Directory "/var/www/trax-ilias-aggregate-adapter">
-    Require all granted
-    Options -Indexes
-</Directory>
-```
-
-La premiere route est recommandee : elle contient le client et le store.
-La deuxieme route gere le comportement natif d'ILIAS 10, qui peut perdre le nom du store lors de la construction de l'URL d'agregation.
-
-Si l'en-tete `Authorization` n'arrive pas a PHP avec FastCGI, ajouter ou decommenter :
-
-```apache
-SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
-```
-
-## 7. Configuration de l'adaptateur
-
-Editer :
+Éditer :
 
 ```bash
 vi /var/www/trax-ilias-aggregate-adapter/config.php
 ```
 
-Configuration minimale :
+Exemple avec deux clients :
 
 ```php
 return [
     'trax_base_url' => null,
-    'default_store' => 'default',
+
+    'aggregate_store_strategy' => 'client_name',
+
     'client_store_map' => [
-        // 'eform' => 'default',
-        // 'client2' => 'production',
+        'ppm' => 'ppm',
+        'eform' => 'default',
     ],
+
+    'default_store' => 'default',
     'max_statements_to_fetch' => 5000,
     'debug' => false,
 ];
 ```
 
-### Parametres
+### Paramètres
 
-| Parametre | Description |
-| --- | --- |
-| `trax_base_url` | `null` pour utiliser automatiquement le meme protocole et hote que la requete entrante. Peut etre force a `http://127.0.0.1` si Trax est local. |
-| `default_store` | Store utilise quand l'URL ILIAS ne contient pas le nom du store. |
-| `client_store_map` | Correspondance client -> store pour les environnements multi-clients ou multi-stores. |
-| `max_statements_to_fetch` | Nombre maximum de statements charges depuis Trax pour construire la reponse. |
-| `debug` | Si `true`, renvoie davantage de details en cas d'erreur. A desactiver en production. |
+| Paramètre | Description |
+|---|---|
+| `trax_base_url` | `null` pour utiliser automatiquement le même protocole et le même hôte que la requête entrante. Peut être forcé à `http://127.0.0.1`. |
+| `aggregate_store_strategy` | `client_name` signifie que le store est supposé porter le même nom que le client si ILIAS perd le nom du store. |
+| `client_store_map` | Correspondance explicite client Trax → store Trax. Prioritaire sur la stratégie automatique. |
+| `default_store` | Store par défaut si la stratégie automatique n'est pas utilisée. |
+| `max_statements_to_fetch` | Nombre maximum de statements lus depuis Trax pour construire la réponse ILIAS. |
+| `debug` | Si `true`, affiche davantage de détails en cas d'erreur. À laisser à `false` en production. |
 
-## 8. Plusieurs clients Trax
+---
 
-Si tous les clients utilisent le store `default`, aucune configuration speciale n'est necessaire :
+## 7. Configuration ILIAS
 
-```php
-'default_store' => 'default',
-```
-
-Exemples automatiquement supportes :
+Dans le type LRS ILIAS, configurer l'endpoint xAPI du store Trax :
 
 ```text
-/trax/api/gateway/clients/eform/stores/api/statements/aggregate
-/trax/api/gateway/clients/client2/stores/api/statements/aggregate
-/trax/api/gateway/clients/client3/stores/api/statements/aggregate
+http://192.168.56.11/trax/api/gateway/clients/ppm/stores/ppm/xapi
 ```
 
-L'adaptateur construira :
+Avec :
 
 ```text
-/trax/api/gateway/clients/eform/stores/default/xapi/statements
-/trax/api/gateway/clients/client2/stores/default/xapi/statements
-/trax/api/gateway/clients/client3/stores/default/xapi/statements
+Username: ppm
+Password: ********
 ```
 
-Si certains clients utilisent un autre store :
+L'objet xAPI/cmi5 doit utiliser ce type LRS.
 
-```php
-'client_store_map' => [
-    'eform' => 'default',
-    'client2' => 'production',
-    'client3' => 'lrs2',
-],
-```
+---
 
-## 9. Patch optionnel ILIAS pour conserver le store dans l'URL
+## 8. Tests
 
-Fichier ILIAS :
+### 8.1 Tester l'endpoint xAPI Trax
 
-```text
-/var/www/ilias/components/ILIAS/CmiXapi/classes/class.ilCmiXapiLrsType.php
-```
-
-Methode originale :
-
-```php
-public function getLrsEndpointStatementsAggregationLink(): string
-{
-    return dirname($this->getLrsEndpoint(), 2) . '/api/' . self::ENDPOINT_AGGREGATE_SUFFIX;
-}
-```
-
-Methode recommandee :
-
-```php
-public function getLrsEndpointStatementsAggregationLink(): string
-{
-    return preg_replace('~/xapi/?$~', '/api/' . self::ENDPOINT_AGGREGATE_SUFFIX, $this->getLrsEndpoint());
-}
-```
-
-Avec ce patch, si l'endpoint LRS ILIAS est :
-
-```text
-http://192.168.56.11/trax/api/gateway/clients/eform/stores/default/xapi
-```
-
-ILIAS appellera :
-
-```text
-http://192.168.56.11/trax/api/gateway/clients/eform/stores/default/api/statements/aggregate
-```
-
-L'adaptateur pourra alors deduire automatiquement le client `eform` et le store `default`.
-
-## 10. Test depuis le serveur ILIAS
-
-Test de recuperation des verbes :
+Depuis le serveur ILIAS :
 
 ```bash
-curl -i -u <nom client>:<secret> \
-  "http://192.168.56.11/trax/api/gateway/clients/eform/stores/api/statements/aggregate?pipeline=%5B%7B%22%24group%22%3A%7B%22_id%22%3A%22%24statement.verb.id%22%7D%7D%5D"
+curl -i -u ppm:aaaaaaaa \
+  -H "X-Experience-API-Version: 1.0.3" \
+  "http://192.168.56.11/trax/api/gateway/clients/ppm/stores/ppm/xapi/about"
 ```
 
-Resultat attendu :
+Résultat attendu :
+
+```text
+HTTP/1.1 200 OK
+{"version":["1.0.3"]}
+```
+
+### 8.2 Tester l'agrégation ILIAS
+
+```bash
+curl -i -u ppm:aaaaaaaa \
+  "http://192.168.56.11/trax/api/gateway/clients/ppm/stores/api/statements/aggregate?pipeline=%5B%7B%22%24group%22%3A%7B%22_id%22%3A%22%24statement.verb.id%22%7D%7D%5D"
+```
+
+Résultat attendu :
 
 ```text
 HTTP/1.1 200 OK
 Content-Type: application/json
 ```
 
-Exemple de reponse :
+Exemple de réponse :
 
 ```json
 [
+  {"_id":"http://adlnet.gov/expapi/verbs/launched"},
   {"_id":"http://adlnet.gov/expapi/verbs/completed"},
   {"_id":"http://adlnet.gov/expapi/verbs/terminated"}
 ]
 ```
 
-## 11. Verification dans ILIAS
+### 8.3 Tester le lancement cmi5
 
-1. Ouvrir un objet xAPI/cmi5 dans ILIAS.
-2. Lancer le module cmi5 pour generer des statements.
-3. Verifier dans Trax que les statements existent.
-4. Ouvrir l'onglet ILIAS **Learning Experiences**.
-5. Verifier que les statements apparaissent.
+1. Restaurer ILIAS sans patch cœur, y compris la ligne `activity_id` si elle existe.
+2. Lancer une ressource cmi5 dans ILIAS.
+3. Vérifier les logs ILIAS :
 
-Pour le ranking, le module cmi5 doit envoyer un score exploitable :
+```bash
+grep -iE "activity_id|cmix|xapi|statement|proxy|LRS error|exception|error" /var/www/logs/ilias.log
+```
+
+L'erreur suivante ne doit plus apparaître :
+
+```text
+A request input is not allowed: [activity_id]
+```
+
+4. Vérifier les statements dans Trax :
+
+```bash
+curl -s -u ppm:aaaaaaaa \
+  -H "X-Experience-API-Version: 1.0.3" \
+  "http://192.168.56.11/trax/api/gateway/clients/ppm/stores/ppm/xapi/statements?limit=20" \
+  | jq -r '.statements[] | [.stored, .verb.id, .object.id, (.context.registration // "-")] | @tsv'
+```
+
+Réponse verbs comme :
+
+```text
+launched
+initialized
+progressed
+completed
+satisfied
+terminated
+```
+
+---
+
+## 9. Dépannage
+
+### Erreur `activity_id`
+
+Vérifier que la route Apache cmi5 est bien active :
+
+```bash
+grep -n "cmi5/tokens" /etc/httpd/conf.d/trax-ilias-aggregate-adapter.conf
+```
+
+Puis :
+
+```bash
+apachectl configtest
+systemctl restart httpd
+```
+
+### Boucle ou erreur 500
+
+L'adaptateur transmet à Trax les requêtes avec l'en-tête :
+
+```text
+X-Trax-Ilias-Bridge-Bypass: 1
+```
+
+La configuration Apache doit contenir la condition :
+
+```apache
+RewriteCond %{HTTP:X-Trax-Ilias-Bridge-Bypass} !^1$
+```
+
+Sans cette condition, l'adaptateur peut se rappeler lui-même en boucle.
+
+### Erreur 401 ou 403
+
+Vérifier que l'en-tête Authorization est bien transmis à PHP :
+
+```apache
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+```
+
+Vérifier également le login/mot de passe du client Trax dans ILIAS.
+
+### Learning Experiences vide
+
+Vérifier que les statements utilisent le même `object.id` que l'Activity-ID de l'objet ILIAS.
+
+### Ranking vide
+
+Le ranking nécessite un score exploitable, par exemple :
 
 ```json
 "result": {
@@ -268,54 +353,18 @@ Pour le ranking, le module cmi5 doit envoyer un score exploitable :
 }
 ```
 
-## 12. Depannage
+Si le contenu cmi5 envoie seulement `completed` avec `duration` mais sans `score.scaled`, le ranking peut rester vide.
 
-### L'onglet ILIAS affiche encore une erreur LRS
+---
 
-Verifier les logs ILIAS :
+## 10. Sécurité
 
-```bash
-grep -iE "cmix|xapi|statement|verb|ranking|LRS error|exception|error" /var/www/logs/ilias.log
-```
-
-Activer temporairement le debug dans `config.php` :
-
-```php
-'debug' => true,
-```
-
-### Erreur 401 ou 403
-
-Verifier que l'en-tete Basic Auth est bien transmis par Apache a PHP.
-
-Tester :
-
-```bash
-curl -i -u <nom client>:<secret> "URL_AGGREGATE"
-```
-
-### Aucun statement affiche
-
-Verifier que les statements Trax utilisent le meme `object.id` que l'Activity-ID de l'objet ILIAS.
-
-```bash
-curl -s -u <nom client>:<secret> \
-  -H "X-Experience-API-Version: 1.0.3" \
-  "http://192.168.56.11/trax/api/gateway/clients/eform/stores/default/xapi/statements?limit=20" \
-  | jq -r '.statements[] | [.stored, .verb.id, .object.id, (.context.registration // "-")] | @tsv'
-```
-
-## 13. Limites connues
-
-- L'adaptateur implemente uniquement la partie des pipelines ILIAS necessaire aux onglets Learning Experiences et Ranking.
-- Le ranking depend de la presence de `result.score.scaled` dans les statements.
-- L'adaptateur charge les statements via pagination xAPI puis filtre localement ; ajuster `max_statements_to_fetch` selon le volume.
-- Pour des environnements de production volumineux, prevoir une strategie de cache ou un endpoint Trax dedie.
-
-## 14. Securite
-
-- Ne pas publier `config.php` avec des secrets.
+- Ne pas publier `config.php` s'il contient des secrets.
+- Publier uniquement `config.sample.php`.
 - Utiliser HTTPS en production.
-- Limiter l'acces Apache a l'adaptateur si necessaire.
-- Laisser `debug` a `false` en production.
+- Garder `debug` à `false` en production.
+- Limiter l'accès réseau à l'adaptateur si nécessaire.
+
+---
+
 
