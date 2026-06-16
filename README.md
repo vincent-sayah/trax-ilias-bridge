@@ -381,3 +381,15 @@ La version 2.0.1 corrige le cas où ILIAS transmet déjà l'en-tête `X-Experien
 La version 2.0.2 corrige le traitement de l'onglet **Ranking** d'ILIAS.
 
 ILIAS envoie une pipeline d'agrégation avec un `$group` qui attend des champs calculés comme `account`, `mbox`, `timestamp`, `duration` et `score`. L'adaptateur évalue maintenant les accumulateurs MongoDB nécessaires (`$last`, `$first`, `$push`, `$max`, `$min`, `$sum`) au lieu de retourner uniquement un `_id` distinct. Cela évite l'erreur PHP ILIAS : `Undefined array key "account"`.
+
+### Correction v2.0.3
+
+La version 2.0.3 remplace la configuration Apache basée sur `RewriteRule` par des directives `AliasMatch`.
+
+Cette correction est nécessaire sur certaines installations Trax/Laravel où les règles de réécriture ne sont pas appliquées avant le routeur Laravel. Le symptôme est un retour `HTTP/1.1 404 Not Found` HTML sur :
+
+```text
+/trax/api/gateway/clients/{client}/stores/api/statements/aggregate
+```
+
+Avec `AliasMatch`, les appels `statements/aggregate` et `cmi5/tokens` sont interceptés directement par Apache et envoyés vers `aggregate.php`.
