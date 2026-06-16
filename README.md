@@ -5,7 +5,7 @@ Adaptateur Trax LRS 3 pour ILIAS 10 permettant :
 - le pré-lancement cmi5 sans modifier le cœur ILIAS ;
 - l'affichage des onglets **Learning Experiences** et **Ranking** des objets xAPI/cmi5 ILIAS.
 
-noms de fichiers de la première version du dépôt :
+Cette version conserve les noms de fichiers de la première version du dépôt :
 
 ```text
 aggregate.php
@@ -279,7 +279,7 @@ curl -s -u ppm:aaaaaaaa \
   | jq -r '.statements[] | [.stored, .verb.id, .object.id, (.context.registration // "-")] | @tsv'
 ```
 
-Réponse verbs comme :
+Tu dois voir des verbs comme :
 
 ```text
 launched
@@ -367,4 +367,17 @@ Si le contenu cmi5 envoie seulement `completed` avec `duration` mais sans `score
 
 ---
 
+## 11. Licence
 
+À compléter selon la licence choisie pour le dépôt.
+
+
+### Correction v2.0.1
+
+La version 2.0.1 corrige le cas où ILIAS transmet déjà l'en-tête `X-Experience-API-Version` lors des appels `statements/aggregate`. L'adaptateur ne relaie plus cet en-tête entrant pour le reporting et envoie une seule valeur `1.0.3` vers Trax, afin d'éviter l'erreur Trax : `Incorrect X-Experience-API-Version header: [1.0.3, 1.0.3]`.
+
+### Correction v2.0.2
+
+La version 2.0.2 corrige le traitement de l'onglet **Ranking** d'ILIAS.
+
+ILIAS envoie une pipeline d'agrégation avec un `$group` qui attend des champs calculés comme `account`, `mbox`, `timestamp`, `duration` et `score`. L'adaptateur évalue maintenant les accumulateurs MongoDB nécessaires (`$last`, `$first`, `$push`, `$max`, `$min`, `$sum`) au lieu de retourner uniquement un `_id` distinct. Cela évite l'erreur PHP ILIAS : `Undefined array key "account"`.
