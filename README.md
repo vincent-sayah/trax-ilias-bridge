@@ -916,6 +916,3 @@ Ajout du support `/xapi/activities/state`, correction de `LMS.LaunchData`, exemp
 
 ---
 
-## 12. Licence
-
-À compléter selon la licence choisie pour le dépôt.
