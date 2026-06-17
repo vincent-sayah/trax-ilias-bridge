@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.5 - 2026-06-17
+
+### Corrigé
+
+- Correction du filtrage des résultats Ranking lorsque le pipeline retourne un score numérique scalaire, par exemple `0.92`, produit par `$max`.
+- La version 2.0.4 pouvait retourner une réponse vide `[]` alors que des statements scorés existaient bien dans Trax.
+- Mise à jour de l'en-tête de diagnostic `X-Trax-Ilias-Bridge-Version` en `2.0.5`.
+
+### Notes de migration depuis 2.0.4
+
+- Remplacer uniquement `aggregate.php` si la configuration Apache et `config.php` sont déjà en place.
+- Aucun changement Apache obligatoire par rapport à la 2.0.4.
+- Aucun changement obligatoire dans `config.php`.
+
 ## 2.0.4 - 2026-06-17
 
 ### Ajouté

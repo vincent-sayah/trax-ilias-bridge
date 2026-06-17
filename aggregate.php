@@ -17,7 +17,7 @@
 
 declare(strict_types=1);
 
-const BRIDGE_VERSION = '2.0.4';
+const BRIDGE_VERSION = '2.0.5';
 const BYPASS_HEADER = 'X-Trax-Ilias-Bridge-Bypass: 1';
 
 $configFile = __DIR__ . '/config.php';
@@ -346,9 +346,17 @@ function groupDocs(array $docs, array $group): array
             $row['timestamp'] = $normalizedTimestamp;
         }
 
-        // Keep only complete highscore rows. ILIAS needs account/score/timestamp/duration.
-        if (array_key_exists('score', $row) && (!isset($row['score']) || !is_array($row['score']))) {
-            continue;
+        // Keep only rows with a real score.
+        // ILIAS Ranking accepts numeric scalar scores produced by $max, such as 0.92,
+        // and score arrays when a pipeline returns a complete score object.
+        if (array_key_exists('score', $row)) {
+            if ($row['score'] === null || $row['score'] === '') {
+                continue;
+            }
+
+            if (is_array($row['score']) && $row['score'] === []) {
+                continue;
+            }
         }
         if (array_key_exists('account', $row) && ($row['account'] === null || $row['account'] === '')) {
             continue;
