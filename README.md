@@ -5,14 +5,6 @@ Adaptateur Trax LRS 3 pour ILIAS 10 permettant :
 - le pré-lancement cmi5 sans modifier le cœur ILIAS ;
 - l'affichage des onglets **Learning Experiences** et **Ranking** des objets xAPI/cmi5 ILIAS.
 
-L’adaptateur sert à faire le lien entre ILIAS et Trax3 pour que les activités cmi5 fonctionnent correctement.
-- Il intercepte uniquement certains appels spécifiques d’ILIAS, notamment ceux liés au lancement cmi5 et à l’affichage des résultats comme Learning Experience et Ranking.
-- Il transforme ou complète ces appels pour que Trax3 puisse répondre dans un format compréhensible par ILIAS.
-- Il ne remplace pas Trax3 et ne modifie pas les traces enregistrées.
-- Les traces xAPI classiques non-cmi5 continuent d’être écrites et lues directement dans Trax3 sans passer par l’adaptateur.
-
-En résumé : l’adaptateur corrige la compatibilité entre ILIAS et Trax3 pour le cmi5, tout en laissant le xAPI standard fonctionner normalement.
-
 Cette version conserve les noms de fichiers de la première version du dépôt :
 
 ```text
@@ -92,13 +84,16 @@ L'adaptateur traduit donc les requêtes d'agrégation ILIAS vers des lectures xA
 
 L'adaptateur est installé sur le serveur Trax. Apache redirige certaines URL Trax vers `aggregate.php` avant qu'elles n'atteignent l'application Trax.
 
-L'adaptateur gère trois routes :
+L'adaptateur gère quatre routes :
 
 ```text
 /trax/api/gateway/clients/{client}/stores/{store}/cmi5/tokens
+/trax/api/gateway/clients/{client}/stores/{store}/xapi/activities/state
 /trax/api/gateway/clients/{client}/stores/{store}/api/statements/aggregate
 /trax/api/gateway/clients/{client}/stores/api/statements/aggregate
 ```
+
+La route `/xapi/activities/state` est nécessaire pour les données cmi5 `LMS.LaunchData` et les états de progression. ILIAS 10 peut aussi y ajouter le paramètre non standard `activity_id`, que Trax refuse.
 
 Il transmet ensuite les requêtes corrigées à Trax en conservant les identifiants Basic Auth envoyés par ILIAS.
 
@@ -120,7 +115,7 @@ README.md
 - Trax LRS 3 accessible en HTTP ou HTTPS.
 - Apache sur le serveur Trax.
 - PHP avec l'extension cURL active.
-- `mod_rewrite` activé dans Apache.
+- `mod_alias` activé dans Apache pour `AliasMatch`.
 - Un ou plusieurs clients Trax avec accès Basic HTTP.
 - ILIAS 10 configuré avec un endpoint xAPI Trax, par exemple :
 
@@ -156,7 +151,7 @@ apachectl configtest
 systemctl restart httpd
 ```
 
-Important : la configuration de l'adaptateur doit être chargée avant les règles générales de Trax/Laravel.
+Important : en architecture simple, la configuration de l'adaptateur doit être chargée avant les règles générales de Trax/Laravel. En architecture DNS/HTTPS, placer plutôt les `AliasMatch` dans le vhost HTTPS public et utiliser le vhost interne fourni en exemple.
 
 ---
 
@@ -191,7 +186,7 @@ return [
 
 | Paramètre | Description |
 |---|---|
-| `trax_base_url` | `null` pour utiliser automatiquement le même protocole et le même hôte que la requête entrante. Peut être forcé à `http://127.0.0.1`. |
+| `trax_base_url` | `null` pour utiliser automatiquement le même protocole et le même hôte que la requête entrante. En architecture DNS/HTTPS ou reverse proxy, utiliser de préférence une URL interne Trax qui ne repasse pas par l'adaptateur, par exemple `http://127.0.0.1:8080`. |
 | `aggregate_store_strategy` | `client_name` signifie que le store est supposé porter le même nom que le client si ILIAS perd le nom du store. |
 | `client_store_map` | Correspondance explicite client Trax → store Trax. Prioritaire sur la stratégie automatique. |
 | `default_store` | Store par défaut si la stratégie automatique n'est pas utilisée. |
@@ -317,21 +312,21 @@ apachectl configtest
 systemctl restart httpd
 ```
 
-### Boucle ou erreur 500
+### Boucle, erreur 500 ou erreur 504
 
-L'adaptateur transmet à Trax les requêtes avec l'en-tête :
+En architecture DNS/HTTPS ou reverse proxy, éviter que l'adaptateur rappelle l'URL publique Trax, car les `AliasMatch` peuvent alors le réintercepter.
+
+Configuration recommandée :
+
+```php
+'trax_base_url' => 'http://127.0.0.1:8080',
+```
+
+avec un VirtualHost interne local qui sert Trax directement, sans `AliasMatch` de l'adaptateur. Un exemple est fourni dans :
 
 ```text
-X-Trax-Ilias-Bridge-Bypass: 1
+apache-trax-ilias-adapter-https-internal.example.conf
 ```
-
-La configuration Apache doit contenir la condition :
-
-```apache
-RewriteCond %{HTTP:X-Trax-Ilias-Bridge-Bypass} !^1$
-```
-
-Sans cette condition, l'adaptateur peut se rappeler lui-même en boucle.
 
 ### Erreur 401 ou 403
 
@@ -347,7 +342,7 @@ Vérifier également le login/mot de passe du client Trax dans ILIAS.
 
 Vérifier que les statements utilisent le même `object.id` que l'Activity-ID de l'objet ILIAS.
 
-### Ranking vide
+### Ranking vide ou erreur `getTimestamp() on false`
 
 Le ranking nécessite un score exploitable, par exemple :
 
@@ -363,6 +358,12 @@ Le ranking nécessite un score exploitable, par exemple :
 
 Si le contenu cmi5 envoie seulement `completed` avec `duration` mais sans `score.scaled`, le ranking peut rester vide.
 
+La version 2.0.4 normalise aussi le champ `timestamp` renvoyé dans les lignes Ranking, afin d'éviter l'erreur ILIAS :
+
+```text
+Call to a member function getTimestamp() on false
+```
+
 ---
 
 ## 10. Sécurité
@@ -375,9 +376,6 @@ Si le contenu cmi5 envoie seulement `completed` avec `duration` mais sans `score
 
 ---
 
-## 11. Licence
-
-À compléter selon la licence choisie pour le dépôt.
 
 
 ### Correction v2.0.1
@@ -401,3 +399,21 @@ Cette correction est nécessaire sur certaines installations Trax/Laravel où le
 ```
 
 Avec `AliasMatch`, les appels `statements/aggregate` et `cmi5/tokens` sont interceptés directement par Apache et envoyés vers `aggregate.php`.
+
+
+### Correction v2.0.4
+
+La version 2.0.4 ajoute la compatibilité cmi5 pour l'API xAPI State :
+
+```text
+/trax/api/gateway/clients/{client}/stores/{store}/xapi/activities/state
+```
+
+ILIAS 10 peut envoyer le paramètre non standard `activity_id` sur cette route, notamment lors de l'écriture de `LMS.LaunchData`. Trax refuse ce paramètre et retourne alors des erreurs de type `400`, puis le contenu cmi5 ne retrouve pas ses données de lancement. L'adaptateur supprime maintenant `activity_id` sur `/xapi/activities/state`, comme il le faisait déjà sur `/cmi5/tokens`.
+
+La version 2.0.4 ajoute aussi :
+
+- une règle Apache `AliasMatch` pour `/xapi/activities/state` ;
+- un exemple de configuration Apache pour les architectures DNS/HTTPS avec backend interne `127.0.0.1:8080` ;
+- la normalisation des timestamps dans les réponses Ranking pour éviter les erreurs ILIAS `getTimestamp() on false` ;
+- une documentation plus explicite de `trax_base_url` pour éviter les boucles Apache/adaptateur.

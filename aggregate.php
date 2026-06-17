@@ -5,7 +5,10 @@
  * Goals:
  *  1. Make ILIAS cmi5 pre-launch compatible with Trax by removing the
  *     non-standard `activity_id` parameter before forwarding to Trax.
- *  2. Make ILIAS Learning Experiences / Ranking compatible with Trax by
+ *  2. Make ILIAS cmi5 LMS.LaunchData and state calls compatible with Trax
+ *     by removing ILIAS' non-standard `activity_id` parameter from
+ *     `/xapi/activities/state` requests.
+ *  3. Make ILIAS Learning Experiences / Ranking compatible with Trax by
  *     translating ILIAS `statements/aggregate?pipeline=...` calls into
  *     xAPI `/statements` reads.
  *
@@ -14,7 +17,7 @@
 
 declare(strict_types=1);
 
-const BRIDGE_VERSION = '2.0.3';
+const BRIDGE_VERSION = '2.0.4';
 const BYPASS_HEADER = 'X-Trax-Ilias-Bridge-Bypass: 1';
 
 $configFile = __DIR__ . '/config.php';
@@ -28,7 +31,14 @@ try {
     if (preg_match('#^/trax/api/gateway/clients/([^/]+)/stores/([^/]+)/cmi5/tokens$#', $path, $m)) {
         validateName($m[1], 'client');
         validateName($m[2], 'store');
-        handleCmi5Tokens($config, $method, $path, $m[1], $m[2]);
+        handleSanitizedProxyRequest($config, $method, $path);
+        exit;
+    }
+
+    if (preg_match('#^/trax/api/gateway/clients/([^/]+)/stores/([^/]+)/xapi/activities/state$#', $path, $m)) {
+        validateName($m[1], 'client');
+        validateName($m[2], 'store');
+        handleSanitizedProxyRequest($config, $method, $path);
         exit;
     }
 
@@ -61,11 +71,18 @@ try {
 }
 
 /**
- * cmi5 token proxy.
- * Removes ILIAS' non-standard activity_id parameter and forwards the request
- * to the real Trax endpoint using the same client/store URL.
+ * Sanitized proxy used by cmi5-specific endpoints.
+ *
+ * ILIAS 10 may add the non-standard `activity_id` parameter in query strings
+ * or request bodies. Trax expects the standard xAPI `activityId` parameter and
+ * rejects `activity_id`. This proxy removes only `activity_id`, preserves the
+ * rest of the request, and forwards it to the real Trax endpoint.
+ *
+ * Used for:
+ *  - /cmi5/tokens
+ *  - /xapi/activities/state, including LMS.LaunchData and progress states
  */
-function handleCmi5Tokens(array $config, string $method, string $path, string $client, string $store): void
+function handleSanitizedProxyRequest(array $config, string $method, string $path): void
 {
     $queryParams = $_GET;
     unset($queryParams['activity_id']);
@@ -319,6 +336,16 @@ function groupDocs(array $docs, array $group): array
             $row['account'] = is_scalar($row['_id']) ? (string)$row['_id'] : '';
         }
 
+        // ILIAS 10 calls ilCmiXapiDateTime::fromXapiTimestamp() on Ranking rows.
+        // A missing or non-parsable timestamp can crash the Ranking tab. Normalize
+        // the grouped timestamp and fall back to the statement stored date if needed.
+        if (array_key_exists('timestamp', $row) || array_key_exists('score', $row)) {
+            $normalizedTimestamp = normalizeXapiTimestamp($row['timestamp'] ?? null)
+                ?? fallbackTimestampFromDocs($groupedDocs)
+                ?? gmdate('Y-m-d\TH:i:s.000\Z');
+            $row['timestamp'] = $normalizedTimestamp;
+        }
+
         // Keep only complete highscore rows. ILIAS needs account/score/timestamp/duration.
         if (array_key_exists('score', $row) && (!isset($row['score']) || !is_array($row['score']))) {
             continue;
@@ -399,6 +426,66 @@ function evaluateExpression(array $doc, mixed $expression): mixed
         return firstValue(pathValues($doc, substr($expression, 1)));
     }
     return $expression;
+}
+
+function fallbackTimestampFromDocs(array $docs): ?string
+{
+    if ($docs === []) {
+        return null;
+    }
+
+    for ($i = count($docs) - 1; $i >= 0; $i--) {
+        $doc = $docs[$i];
+        if (!is_array($doc)) {
+            continue;
+        }
+
+        $candidates = [
+            firstValue(pathValues($doc, 'statement.timestamp')),
+            firstValue(pathValues($doc, 'timestamp')),
+            firstValue(pathValues($doc, 'statement.stored')),
+            firstValue(pathValues($doc, 'stored')),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $normalized = normalizeXapiTimestamp($candidate);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+    }
+
+    return null;
+}
+
+function normalizeXapiTimestamp(mixed $value): ?string
+{
+    if (is_array($value)) {
+        foreach ($value as $item) {
+            $normalized = normalizeXapiTimestamp($item);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+        return null;
+    }
+
+    if (!is_scalar($value)) {
+        return null;
+    }
+
+    $timestamp = trim((string)$value);
+    if ($timestamp === '') {
+        return null;
+    }
+
+    try {
+        $date = new DateTimeImmutable($timestamp);
+    } catch (Throwable) {
+        return null;
+    }
+
+    return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.v\Z');
 }
 
 function matchesCriteria(array $doc, array $criteria): bool
