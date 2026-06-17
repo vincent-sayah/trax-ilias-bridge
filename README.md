@@ -1,4 +1,4 @@
-# trax-ilias-bridge 2.0.4
+# trax-ilias-bridge 2.0.5
 
 `trax-ilias-bridge` est un adaptateur Apache/PHP installé sur le serveur **Trax LRS 3** pour améliorer la compatibilité avec les objets **xAPI/cmi5 ILIAS 10**.
 
@@ -122,6 +122,14 @@ La version 2.0.4 normalise également certains timestamps dans les réponses Ran
 ```text
 Call to a member function getTimestamp() on false
 ```
+
+La version 2.0.5 corrige en plus le filtrage des lignes Ranking lorsque le pipeline calcule un score numérique avec `$max`, par exemple :
+
+```json
+"score": 0.92
+```
+
+La version 2.0.4 pouvait supprimer à tort ces lignes, ce qui produisait une réponse vide `[]` malgré la présence de statements scorés dans Trax.
 
 ---
 
@@ -247,10 +255,10 @@ Dans ce type d'architecture, il ne faut pas que l'adaptateur rappelle l'URL publ
 
 ```text
 ILIAS / navigateur
-    -> https://integ-xapi-mn.../cmi5/tokens
+    -> https://trax.example.org/cmi5/tokens
     -> Apache intercepte avec AliasMatch
     -> aggregate.php
-    -> aggregate.php rappelle https://integ-xapi-mn.../cmi5/tokens
+    -> aggregate.php rappelle https://trax.example.org/cmi5/tokens
     -> Apache réintercepte
     -> boucle
     -> 500 / 504 / timeout
@@ -909,6 +917,12 @@ Amélioration du support des pipelines Ranking ILIAS avec `$group`, `$last`, `$f
 ### 2.0.3
 
 Remplacement des `RewriteRule` par `AliasMatch` pour garantir l'interception avant Laravel/Trax.
+
+### 2.0.5
+
+- Correction du filtrage Ranking lorsque `score` est un nombre calculé par `$max`, par exemple `0.92`.
+- La version 2.0.4 pouvait retourner `[]` pour un pipeline Ranking valide, car elle attendait à tort un tableau pour le champ `score`.
+- En-tête HTTP de diagnostic mis à jour : `X-Trax-Ilias-Bridge-Version: 2.0.5`.
 
 ### 2.0.4
 
