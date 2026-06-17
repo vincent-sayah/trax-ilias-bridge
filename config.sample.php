@@ -1,14 +1,20 @@
 <?php
 /**
  * Configuration de l'adaptateur Trax ILIAS Bridge.
+ * Version 2.0.4
  */
 return [
     /**
      * null = utilise automatiquement le protocole et l'hôte de la requête entrante.
-     * Exemple possible si Trax est joignable localement : 'http://127.0.0.1'
      *
-     * L'adaptateur ajoute l'en-tête X-Trax-Ilias-Bridge-Bypass pour éviter les
-     * boucles de réécriture Apache quand cette URL pointe vers le même vhost.
+     * Architecture simple HTTP/IP : null peut suffire.
+     * Architecture DNS/HTTPS ou reverse proxy : utiliser une URL interne Trax
+     * qui ne repasse pas par les AliasMatch de l'adaptateur, par exemple :
+     * 'http://127.0.0.1:8080'
+     *
+     * L'adaptateur ajoute l'en-tête X-Trax-Ilias-Bridge-Bypass. Cet en-tête
+     * est utile pour le diagnostic, mais la séparation avec un vhost interne
+     * reste la méthode la plus fiable pour éviter les boucles.
      */
     'trax_base_url' => null,
 
